@@ -1,0 +1,25 @@
+# IDEs / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Go
+bin/
+*.exe
+*.test
+*.out
+/**/go.sum.tmp
+
+# Build / data artifacts
+dist/
+tmp/
+*.log
+data/
+*.sqlite
+
+# Jepsen / store
+store/
+
+# TLA+ toolbox
+*.toolbox/
+states/
