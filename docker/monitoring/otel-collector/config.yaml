@@ -1,0 +1,42 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  # Per-container CPU/memory from the Docker socket. cadvisor on Docker Desktop
+  # only exposes cgroup-hash ids (no container names), so this is the only way
+  # to get "postgres"/"redis"-labelled CPU. container.cpu.utilization is in
+  # core-equivalent percent (100% = one core), same units as Node's process CPU.
+  docker_stats:
+    endpoint: unix:///var/run/docker.sock
+    # Default (1.25) is rejected by modern Docker daemons; pin to a supported version.
+    api_version: '1.40'
+    collection_interval: 2s
+    metrics:
+      container.cpu.utilization:
+        enabled: true
+
+processors:
+  batch:
+    timeout: 5s
+
+exporters:
+  prometheus:
+    endpoint: '0.0.0.0:8889'
+    add_metric_suffixes: false
+    # Drop stale series quickly so a stopped load gen flatlines/gaps fast
+    # instead of holding its last value on the graph.
+    metric_expiration: 8s
+    # Promote resource attributes (container.name) to labels for per-container filtering.
+    resource_to_telemetry_conversion:
+      enabled: true
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp, docker_stats]
+      processors: [batch]
+      exporters: [prometheus]

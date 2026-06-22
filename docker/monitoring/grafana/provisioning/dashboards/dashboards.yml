@@ -1,0 +1,7 @@
+apiVersion: 1
+
+# Classic file provisioning disabled — dashboards are loaded via the
+# Provisioning API (Repository resource registered by grafana-bootstrap,
+# pointed at /var/lib/grafana/dashboards). Drop dashboard JSONs into
+# monitoring/grafana/dashboards/ and they sync automatically.
+providers: []

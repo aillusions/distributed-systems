@@ -1,0 +1,28 @@
+{
+  "name": "numbers-lab-ts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Load generator + OTLP metrics for Postgres & Redis (RPS / latency, reads vs writes).",
+  "scripts": {
+    "load": "tsx src/load.ts",
+    "seed": "tsx src/seed.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.205.0",
+    "@opentelemetry/host-metrics": "^0.36.0",
+    "@opentelemetry/resources": "^2.1.0",
+    "@opentelemetry/sdk-metrics": "^2.1.0",
+    "@opentelemetry/semantic-conventions": "^1.37.0",
+    "ioredis": "^5.4.2",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

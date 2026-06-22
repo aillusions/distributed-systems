@@ -1,0 +1,91 @@
+{
+  "uid": "numbers-load",
+  "title": "Numbers — DB & Redis load",
+  "tags": ["numbers", "lab"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "5s",
+  "time": { "from": "now-5m", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "target",
+        "label": "Target",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(ops_total, target)",
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Throughput (RPS) — reads vs writes",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (target, op) (rate(ops_total{target=~\"$target\"}[10s]))",
+          "legendFormat": "{{target}} {{op}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Latency p99 (ms) — reads vs writes",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.99, sum by (target, op, le) (rate(op_duration_ms_bucket{target=~\"$target\"}[10s])))",
+          "legendFormat": "{{target}} {{op}} p99"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Total ops (cumulative)",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (target, op) (ops_total{target=~\"$target\"})",
+          "legendFormat": "{{target}} {{op}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "CPU %",
+      "description": "CPU per core-equivalent (100% = one full core). Node from process_cpu_time (OTLP), Postgres/Redis from the collector's docker_stats receiver. Whichever pins near a core ceiling while RPS plateaus is the bottleneck.",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(process_cpu_time[10s])) * 100",
+          "legendFormat": "node (load gen)"
+        },
+        {
+          "refId": "B",
+          "expr": "container_cpu_utilization{container_name=~\"dslab-postgres|dslab-redis\"}",
+          "legendFormat": "{{container_name}}"
+        }
+      ]
+    }
+  ]
+}

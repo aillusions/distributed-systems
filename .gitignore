@@ -23,3 +23,5 @@ store/
 # TLA+ toolbox
 *.toolbox/
 states/
+
+node_modules

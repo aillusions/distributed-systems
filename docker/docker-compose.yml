@@ -1,0 +1,126 @@
+name: distributed-systems
+
+# Local dev stack for the distributed-systems lab:
+# postgres + redis + monitoring (prometheus, otel-collector, grafana).
+# Drills run on the host against these containers.
+#
+#   ./start.sh   # brings up the whole stack
+
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    container_name: dslab-postgres
+    hostname: postgres
+    restart: on-failure
+    ports:
+      - '5432:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U admin']
+      interval: 1s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      # Comma-separated DBs created on first init. Each becomes a same-named
+      # DB owned by a same-named user, with pg_stat_statements enabled.
+      POSTGRES_MULTIPLE_DATABASES: '"dslab"'
+    # RAM-backed data dir — fast, but ALL DB DATA IS WIPED on restart. Fine for
+    # a lab where each drill starts from a clean slate.
+    tmpfs:
+      - /var/lib/postgresql/data:rw,size=1g
+    command: >
+      postgres
+      -c max_connections=200
+      -c fsync=off
+      -c synchronous_commit=off
+      -c full_page_writes=off
+      -c autovacuum=off
+      -c shared_preload_libraries=pg_stat_statements
+
+    volumes:
+      - ./init-multi-postgres-databases.sh:/docker-entrypoint-initdb.d/init-multi-postgres-databases.sh
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: dslab-redis
+    hostname: redis
+    restart: on-failure
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 1s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  # --- Monitoring (prometheus + otel-collector + grafana) ------------------
+  # Metric flow:
+  #   - Host processes export OTLP HTTP/gRPC metrics to the otel-collector
+  #     (:4318 / :4317), re-exposed as a Prometheus scrape endpoint on :8889.
+
+  # http://localhost:9090/targets
+  prometheus:
+    image: prom/prometheus
+    container_name: dslab-prometheus
+    ports:
+      - '9090:9090'
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+
+  # OTLP HTTP on :4318, OTLP gRPC on :4317.
+  # Prometheus scrape endpoint exposed on :8889 inside the network.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.116.1
+    container_name: dslab-otel-collector
+    ports:
+      - '4317:4317'
+      - '4318:4318'
+      - '8889:8889'
+    volumes:
+      - ./monitoring/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+      # Read-only Docker socket for the docker_stats receiver (per-container CPU).
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: ['--config=/etc/otelcol-contrib/config.yaml']
+
+  # http://localhost:3005 (anonymous admin)
+  grafana:
+    image: grafana/grafana:13.0.1
+    container_name: dslab-grafana
+    ports:
+      - '3005:3000'
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - GF_SERVER_ROOT_URL=http://localhost:3005
+      - GF_PATHS_PERMITTED_PROVISIONING_PATHS=/var/lib/grafana/dashboards
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+
+  # One-shot init: registers the v2 Provisioning Repository so JSON dashboards
+  # dropped into /var/lib/grafana/dashboards/ are picked up automatically.
+  # 409 (already exists) is treated as success — safe to re-run on every up.
+  grafana-bootstrap:
+    image: curlimages/curl:latest
+    container_name: dslab-grafana-bootstrap
+    depends_on:
+      - grafana
+    restart: 'no'
+    entrypoint:
+      - sh
+      - -c
+      - |
+        until curl -sf http://grafana:3000/api/health > /dev/null; do
+          echo "waiting for grafana..."; sleep 2;
+        done;
+        echo "registering Repository...";
+        code=$$(curl -s -o /tmp/out -w "%{http_code}" -X POST \
+          -H 'Content-Type: application/json' \
+          -d '{"apiVersion":"provisioning.grafana.app/v0alpha1","kind":"Repository","metadata":{"name":"dslab-monitoring","namespace":"default"},"spec":{"title":"distributed-systems Monitoring","type":"local","local":{"path":"/var/lib/grafana/dashboards"},"sync":{"enabled":true,"target":"folder","intervalSeconds":10},"workflows":[]}}' \
+          http://grafana:3000/apis/provisioning.grafana.app/v0alpha1/namespaces/default/repositories);
+        cat /tmp/out; echo;
+        case "$$code" in 2*|409) echo "ok ($$code)"; exit 0;; *) echo "FAIL $$code"; exit 1;; esac
