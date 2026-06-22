@@ -211,7 +211,7 @@ services:
     container_name: dslab-grafana-renderer
     environment:
       - ENABLE_METRICS=true
-      - RENDERING_RENDERER_TOKEN=dslab-local-renderer-token
+      - AUTH_TOKEN=dslab-local-renderer-token
 
   # One-shot init: registers the v2 Provisioning Repository so JSON dashboards
   # dropped into /var/lib/grafana/dashboards/ are picked up automatically.
