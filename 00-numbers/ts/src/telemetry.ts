@@ -6,6 +6,7 @@
 //   - ops_total       counter   → RPS via rate()
 //   - op_duration_ms  histogram → latency percentiles via histogram_quantile()
 
+import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
 import { metrics } from '@opentelemetry/api';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import {
@@ -55,6 +56,38 @@ metrics.setGlobalMeterProvider(provider);
 new HostMetrics({ meterProvider: provider, name: config.otlp.serviceName }).start();
 
 const meter = metrics.getMeter('numbers-lab');
+
+// Event Loop Utilization: fraction (0-1) of wall time the main thread's event
+// loop was busy. Unlike process CPU% it excludes GC/threadpool/codec threads,
+// so it isolates whether the single JS thread is the actual bottleneck.
+// We diff against the previous reading so each export reflects the last interval.
+let lastELU = performance.eventLoopUtilization();
+meter
+  .createObservableGauge('event_loop_utilization', {
+    description: 'Main-thread event loop utilization (0-100%) over the export interval',
+    unit: '%',
+  })
+  .addCallback((result) => {
+    const now = performance.eventLoopUtilization();
+    result.observe(performance.eventLoopUtilization(now, lastELU).utilization * 100);
+    lastELU = now;
+  });
+
+// Event loop lag: how long tasks wait before the loop services them. While ELU
+// shows the loop is *busy*, lag shows the latency that business inflicts on each
+// scheduled callback. Histogram is in ns; we expose mean and p99 in ms and reset
+// each interval so values are per-interval, not cumulative.
+const lagHist = monitorEventLoopDelay({ resolution: 10 });
+lagHist.enable();
+meter
+  .createObservableGauge('event_loop_lag_ms', {
+    description: 'Main-thread event loop lag p99 in ms over the export interval',
+    unit: 'ms',
+  })
+  .addCallback((result) => {
+    result.observe(lagHist.percentile(99) / 1e6);
+    lagHist.reset();
+  });
 
 export const opsTotal = meter.createCounter('ops_total', {
   description: 'Total DB/cache operations',

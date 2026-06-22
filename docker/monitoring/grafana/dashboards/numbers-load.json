@@ -67,19 +67,40 @@
       ]
     },
     {
-      "id": 7,
-      "title": "CPU %",
-      "description": "CPU per core-equivalent (100% = one full core). Node from process_cpu_time (OTLP), Postgres/Redis from the collector's docker_stats receiver. Whichever pins near a core ceiling while RPS plateaus is the bottleneck.",
+      "id": 8,
+      "title": "Node.js metrics",
+      "description": "process CPU % (core-equivalent, 100% = one full core, can exceed via GC/threadpool), event loop utilization % (main JS thread busy fraction, ~100% = the single thread is the wall), and event loop lag in ms (how long callbacks wait before the loop services them).",
       "type": "timeseries",
       "gridPos": { "h": 6, "w": 24, "x": 0, "y": 18 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "unit": "percent", "min": 0 }, "overrides": [] },
+      "fieldConfig": { "defaults": { "min": 0 }, "overrides": [] },
       "targets": [
         {
           "refId": "A",
           "expr": "sum(rate(process_cpu_time{service_name=\"numbers-lab-ts\"}[10s])) * 100",
-          "legendFormat": "node (load gen)"
+          "legendFormat": "process cpu %"
         },
+        {
+          "refId": "B",
+          "expr": "{__name__=~\"event_loop_utilization.*\", service_name=\"numbers-lab-ts\"}",
+          "legendFormat": "event loop utilization %"
+        },
+        {
+          "refId": "C",
+          "expr": "{__name__=~\"event_loop_lag_ms.*\", service_name=\"numbers-lab-ts\"}",
+          "legendFormat": "event loop lag p99 (ms)"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Container CPU %",
+      "description": "CPU per core-equivalent (100% = one full core) from the collector's docker_stats receiver. Whichever container pins near a core ceiling while RPS plateaus is the bottleneck.",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0 }, "overrides": [] },
+      "targets": [
         {
           "refId": "B",
           "expr": "container_cpu_utilization{container_name=~\"dslab-postgres|dslab-redis|dslab-kafka|dslab-redpanda|dslab-rabbitmq\"}",
