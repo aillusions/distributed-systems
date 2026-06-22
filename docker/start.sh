@@ -11,3 +11,6 @@ docker compose up -d
 
 echo "Grafana:     http://localhost:3005"
 echo "Prometheus:  http://localhost:9090/targets"
+echo "Kafka UI:    http://localhost:8080"
+echo "Redpanda UI: http://localhost:8081"
+echo "RabbitMQ UI: http://localhost:15672 (guest/guest)"

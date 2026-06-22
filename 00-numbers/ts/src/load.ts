@@ -11,19 +11,28 @@
 
 import { ensureSchema, pool, closePg } from './pg.js';
 import { redis, redisKey, closeRedis } from './redis.js';
+import { producer, connectKafka, closeKafka } from './kafka.js';
+import { redpandaProducer, connectRedpanda, closeRedpanda } from './redpanda.js';
+import { connectRabbit, publishRabbit, closeRabbit } from './rabbitmq.js';
 import { record, shutdownTelemetry, type OpLabels } from './telemetry.js';
 import { config } from './config.js';
 
-type Target = 'pg' | 'redis';
+type Target = 'pg' | 'redis' | 'kafka' | 'redpanda' | 'rabbitmq';
 type Op = 'read' | 'write';
 
 // Run all combinations in this order. Writes first so reads have fresh data.
+// Brokers are send-only, so they only appear as writes.
 const PHASES: Array<{ target: Target; op: Op }> = [
   { target: 'pg', op: 'write' },
   { target: 'pg', op: 'read' },
   { target: 'redis', op: 'write' },
   { target: 'redis', op: 'read' },
+  { target: 'kafka', op: 'write' },
+  { target: 'redpanda', op: 'write' },
+  { target: 'rabbitmq', op: 'write' },
 ];
+
+const payload = Buffer.alloc(config.payloadBytes, 'x');
 
 // Fixed per-phase duration. Kept well above Grafana's rate() window so the
 // displayed RPS isn't diluted by idle time around a short run.
@@ -40,21 +49,39 @@ function parseArgs(argv: string[]): { concurrency: number } {
 
 const randId = () => Math.floor(Math.random() * config.keyspace);
 
-// One operation. Throws on failure so the worker loop can tag status=error.
-function operation(target: Target, op: Op): Promise<unknown> {
+// Pre-built batch of messages for kafka/redpanda produce requests.
+const batch = Array.from({ length: config.brokerBatch }, () => ({ value: payload }));
+
+// One operation. Returns the number of messages it covered (>1 for batched
+// broker sends). Throws on failure so the worker loop can tag status=error.
+async function operation(target: Target, op: Op): Promise<number> {
+  // Brokers: one acked produce request carrying `brokerBatch` messages (acks=1).
+  if (target === 'kafka') {
+    await producer.send({ topic: config.kafka.topic, acks: 1, messages: batch });
+    return batch.length;
+  }
+  if (target === 'redpanda') {
+    await redpandaProducer.send({ topic: config.redpanda.topic, acks: 1, messages: batch });
+    return batch.length;
+  }
+  if (target === 'rabbitmq') {
+    await publishRabbit(payload);
+    return 1;
+  }
+
   const id = randId();
   if (target === 'pg') {
-    return op === 'write'
+    await (op === 'write'
       ? pool.query(
           `INSERT INTO kv (id, v) VALUES ($1, $2)
            ON CONFLICT (id) DO UPDATE SET v = EXCLUDED.v, ts = now()`,
           [id, `w-${Date.now()}`],
         )
-      : pool.query('SELECT v FROM kv WHERE id = $1', [id]);
+      : pool.query('SELECT v FROM kv WHERE id = $1', [id]));
+    return 1;
   }
-  return op === 'write'
-    ? redis.set(redisKey(id), `w-${Date.now()}`)
-    : redis.get(redisKey(id));
+  await (op === 'write' ? redis.set(redisKey(id), `w-${Date.now()}`) : redis.get(redisKey(id)));
+  return 1;
 }
 
 // Drive one target/op at `concurrency` for `duration` seconds.
@@ -74,14 +101,15 @@ async function runPhase(
     while (Date.now() < deadline) {
       const labels: OpLabels = { target, op, status: 'ok' };
       const start = performance.now();
+      let weight = 1;
       try {
-        await operation(target, op);
+        weight = await operation(target, op);
       } catch {
         labels.status = 'error';
         errors++;
       }
-      record(labels, performance.now() - start);
-      count++;
+      record(labels, performance.now() - start, weight);
+      count += weight;
     }
   }
 
@@ -97,7 +125,7 @@ async function runPhase(
 
 async function main(): Promise<void> {
   const { concurrency } = parseArgs(process.argv.slice(2));
-  await ensureSchema();
+  await Promise.all([ensureSchema(), connectKafka(), connectRedpanda(), connectRabbit()]);
 
   for (const { target, op } of PHASES) {
     await runPhase(target, op, concurrency, DURATION_S);
@@ -108,7 +136,7 @@ async function main(): Promise<void> {
 
   // Flush metrics, then close connections.
   await shutdownTelemetry();
-  await Promise.all([closePg(), closeRedis()]);
+  await Promise.all([closePg(), closeRedis(), closeKafka(), closeRedpanda(), closeRabbit()]);
 }
 
 main().catch((err) => {

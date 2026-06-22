@@ -77,12 +77,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(process_cpu_time[10s])) * 100",
+          "expr": "sum(rate(process_cpu_time{service_name=\"numbers-lab-ts\"}[10s])) * 100",
           "legendFormat": "node (load gen)"
         },
         {
           "refId": "B",
-          "expr": "container_cpu_utilization{container_name=~\"dslab-postgres|dslab-redis\"}",
+          "expr": "container_cpu_utilization{container_name=~\"dslab-postgres|dslab-redis|dslab-kafka|dslab-redpanda|dslab-rabbitmq\"}",
           "legendFormat": "{{container_name}}"
         }
       ]

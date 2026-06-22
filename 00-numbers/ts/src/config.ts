@@ -17,6 +17,25 @@ export const config = {
     host: process.env.REDIS_HOST ?? 'localhost',
     port: Number(process.env.REDIS_PORT ?? 6379),
   },
+  kafka: {
+    brokers: (process.env.KAFKA_BROKERS ?? 'localhost:9092').split(','),
+    topic: process.env.KAFKA_TOPIC ?? 'dslab.stress',
+    partitions: Number(process.env.KAFKA_PARTITIONS ?? 6),
+  },
+  redpanda: {
+    brokers: (process.env.REDPANDA_BROKERS ?? 'localhost:19092').split(','),
+    topic: process.env.REDPANDA_TOPIC ?? 'dslab.stress',
+    partitions: Number(process.env.REDPANDA_PARTITIONS ?? 6),
+  },
+  rabbitmq: {
+    url: process.env.RABBITMQ_URL ?? 'amqp://localhost:5672',
+    queue: process.env.RABBITMQ_QUEUE ?? 'dslab.stress',
+  },
+  // Payload size (bytes) of each published kafka/rabbitmq message.
+  payloadBytes: Number(process.env.PAYLOAD_BYTES ?? 256),
+  // Messages per produce request for kafka/redpanda phases (1 = no batching).
+  // Batching amortizes per-request overhead — the main throughput lever.
+  brokerBatch: Number(process.env.BROKER_BATCH ?? 100),
   otlp: {
     // The PeriodicExportingMetricReader appends /v1/metrics.
     endpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? 'http://localhost:4318',

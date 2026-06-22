@@ -16,10 +16,13 @@
     "@opentelemetry/resources": "^2.1.0",
     "@opentelemetry/sdk-metrics": "^2.1.0",
     "@opentelemetry/semantic-conventions": "^1.37.0",
+    "amqplib": "^0.10.5",
     "ioredis": "^5.4.2",
+    "kafkajs": "^2.2.4",
     "pg": "^8.13.1"
   },
   "devDependencies": {
+    "@types/amqplib": "^0.10.5",
     "@types/node": "^22.10.5",
     "@types/pg": "^8.11.10",
     "tsx": "^4.19.2",

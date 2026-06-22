@@ -66,14 +66,17 @@ export const opDurationMs = meter.createHistogram('op_duration_ms', {
 });
 
 export type OpLabels = {
-  target: 'pg' | 'redis';
+  target: 'pg' | 'redis' | 'kafka' | 'redpanda' | 'rabbitmq';
+  // Brokers are send-only, so they only ever use 'write'.
   op: 'read' | 'write';
   status: 'ok' | 'error';
 };
 
-// Record one operation's outcome + latency in a single place.
-export function record(labels: OpLabels, durationMs: number): void {
-  opsTotal.add(1, labels);
+// Record one operation's outcome + latency in a single place. `weight` is the
+// number of messages the op covered (>1 for batched broker sends) so the
+// counter reflects messages/sec, while latency is recorded once per request.
+export function record(labels: OpLabels, durationMs: number, weight = 1): void {
+  opsTotal.add(weight, labels);
   // Histogram only carries target/op — status lives on the counter so error
   // rate stays queryable without fragmenting the latency distribution.
   opDurationMs.record(durationMs, { target: labels.target, op: labels.op });
