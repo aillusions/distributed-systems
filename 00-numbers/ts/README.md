@@ -1,5 +1,5 @@
 ```bash
-../../docker/start.sh
+../docker/start.sh
 pnpm install
 pnpm seed
 pnpm load --concurrency 200

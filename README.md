@@ -12,15 +12,20 @@ is the *explanation*.
 
 | Drill | Folder | What it teaches | Status |
 | --- | --- | --- | --- |
-| Raft from scratch (Go) | [`07-raft/`](07-raft/) | consensus, leader election, log replication | 🔲 not started |
-| Replicated KV store | [`04-kv-store/`](04-kv-store/) | leader/follower, WAL, failover | 🔲 not started |
-| Chaos drills | [`01-chaos/`](01-chaos/) | partial failure on your own stack | 🔲 not started |
-| Operate a cluster & break it | [`02-cluster-break/`](02-cluster-break/) | quorum loss, re-election, rebalancing | 🔲 not started |
-| Break Postgres replication | [`06-pg-replication/`](06-pg-replication/) | streaming repl, lag, promotion, repair | 🔲 not started |
-| CAP: C vs A | [`09-cap/`](09-cap/) | async=AP vs sync=CP under a partition (Toxiproxy) | 🟡 scaffold |
-| Reproduce a famous outage | [`05-outages/`](05-outages/) | recreate a postmortem in miniature | 🔲 not started |
-| Jepsen consistency testing | [`03-jepsen/`](03-jepsen/) | do the claimed guarantees hold under partition | 🔲 not started |
-| Model-check with TLA+ | [`08-tla/`](08-tla/) | verify the design before writing code | 🔲 not started |
+| CAP: C vs A | [`01-CAP/`](01-CAP/) | async=AP vs sync=CP under a partition (Toxiproxy) | 🟡 scaffold |
+
+Queued in [`TODO/`](TODO/):
+
+| Drill | Folder | What it teaches | Status |
+| --- | --- | --- | --- |
+| Raft from scratch (Go) | [`TODO/07-raft/`](TODO/07-raft/) | consensus, leader election, log replication | 🔲 not started |
+| Replicated KV store | [`TODO/04-kv-store/`](TODO/04-kv-store/) | leader/follower, WAL, failover | 🔲 not started |
+| Chaos drills | [`TODO/01-chaos/`](TODO/01-chaos/) | partial failure on your own stack | 🔲 not started |
+| Operate a cluster & break it | [`TODO/02-cluster-break/`](TODO/02-cluster-break/) | quorum loss, re-election, rebalancing | 🔲 not started |
+| Break Postgres replication | [`TODO/06-pg-replication/`](TODO/06-pg-replication/) | streaming repl, lag, promotion, repair | 🔲 not started |
+| Reproduce a famous outage | [`TODO/05-outages/`](TODO/05-outages/) | recreate a postmortem in miniature | 🔲 not started |
+| Jepsen consistency testing | [`TODO/03-jepsen/`](TODO/03-jepsen/) | do the claimed guarantees hold under partition | 🔲 not started |
+| Model-check with TLA+ | [`TODO/08-tla/`](TODO/08-tla/) | verify the design before writing code | 🔲 not started |
 
 Done elsewhere: the **MIT 6.824 / 6.5840 labs** (the course's own scaffold) and
 the **teach-back write-ups** (on the site).

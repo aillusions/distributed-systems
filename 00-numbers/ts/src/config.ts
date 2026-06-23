@@ -1,4 +1,4 @@
-// Central config. Defaults line up with the docker stack in /docker
+// Central config. Defaults line up with the docker stack in ../docker
 // (postgres admin/admin on :5432 db `dslab`, redis on :6379, otel-collector
 // OTLP HTTP on :4318). Override any of these via env vars.
 

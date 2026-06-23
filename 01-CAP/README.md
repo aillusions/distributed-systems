@@ -37,5 +37,5 @@ cd .. && ./down.sh
 
 **Status:** 🟡 scaffold; not yet run end-to-end.
 
-Related: [`06-pg-replication/`](../06-pg-replication/) covers the replication
-*mechanics* (lag, WAL, promotion, repair) by hand.
+Related: [`TODO/06-pg-replication/`](../TODO/06-pg-replication/) covers the
+replication *mechanics* (lag, WAL, promotion, repair) by hand.
