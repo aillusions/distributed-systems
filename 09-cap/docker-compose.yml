@@ -1,0 +1,85 @@
+name: cap
+
+# CAP lab: Postgres primary + 1 streaming standby, with Toxiproxy on the
+# replication link so we can partition primary<->replica on demand.
+#
+#   ./up.sh            # bring the stack up
+#   cd ts && pnpm i && pnpm setup
+#   pnpm lag           # async staleness with NO partition (PACELC "EL")
+#   pnpm partition     # async under partition: replica stays up, serves stale (AP)
+#   pnpm sync          # synchronous repl under partition: writes block (CP)
+#
+# Apps connect directly:  writes -> primary :5432,  reads -> replica :5433.
+# Only the WAL stream (replica -> toxiproxy -> primary) is partitionable.
+
+services:
+  primary:
+    image: postgres:17.6-alpine
+    container_name: cap-primary
+    hostname: primary
+    restart: on-failure
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: dslab
+      POSTGRES_HOST_AUTH_METHOD: trust
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U admin -d dslab']
+      interval: 1s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    tmpfs:
+      - /var/lib/postgresql/data:size=512m
+    volumes:
+      - ./primary/init-replication.sh:/docker-entrypoint-initdb.d/init-replication.sh:ro
+    command: >
+      postgres
+      -c wal_level=replica
+      -c max_wal_senders=10
+      -c max_replication_slots=10
+      -c wal_keep_size=512MB
+      -c hot_standby=on
+      -c synchronous_commit=on
+
+  # Sits on the replication path. Listens on :5432 inside the network and
+  # forwards to primary:5432. Disabling this proxy (via the admin API on :8474)
+  # is our network partition. App read/write traffic never crosses it.
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.11.0
+    container_name: cap-toxiproxy
+    hostname: toxiproxy
+    restart: on-failure
+    ports:
+      - '8474:8474'
+    volumes:
+      - ./toxiproxy/config.json:/toxiproxy/config.json:ro
+    command: ['-host=0.0.0.0', '-config=/toxiproxy/config.json']
+    depends_on:
+      primary:
+        condition: service_healthy
+
+  replica:
+    image: postgres:17.6-alpine
+    container_name: cap-replica
+    hostname: replica
+    restart: on-failure
+    # Run as postgres so the overridden entrypoint can pg_basebackup into a
+    # subdir of the (world-writable) tmpfs mount without root.
+    user: postgres
+    ports:
+      - '5433:5432'
+    environment:
+      PGUSER: admin
+      PGPASSWORD: admin
+      PRIMARY_HOST: toxiproxy
+      PRIMARY_PORT: 5432
+    tmpfs:
+      - /var/lib/postgresql/data:size=512m
+    volumes:
+      - ./replica/entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: ['/bin/sh', '/entrypoint.sh']
+    depends_on:
+      - toxiproxy

@@ -17,6 +17,7 @@ is the *explanation*.
 | Chaos drills | [`01-chaos/`](01-chaos/) | partial failure on your own stack | 🔲 not started |
 | Operate a cluster & break it | [`02-cluster-break/`](02-cluster-break/) | quorum loss, re-election, rebalancing | 🔲 not started |
 | Break Postgres replication | [`06-pg-replication/`](06-pg-replication/) | streaming repl, lag, promotion, repair | 🔲 not started |
+| CAP: C vs A | [`09-cap/`](09-cap/) | async=AP vs sync=CP under a partition (Toxiproxy) | 🟡 scaffold |
 | Reproduce a famous outage | [`05-outages/`](05-outages/) | recreate a postmortem in miniature | 🔲 not started |
 | Jepsen consistency testing | [`03-jepsen/`](03-jepsen/) | do the claimed guarantees hold under partition | 🔲 not started |
 | Model-check with TLA+ | [`08-tla/`](08-tla/) | verify the design before writing code | 🔲 not started |
