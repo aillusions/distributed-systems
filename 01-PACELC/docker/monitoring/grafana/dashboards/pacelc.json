@@ -12,7 +12,7 @@
       "title": "Experiment 1 (EL): replica lag — versions behind primary",
       "description": "Healthy, async link under write load. 'primary n' and 'replica n' are the absolute counter values (left axis) — they climb together and look nearly identical at full scale. 'versions behind' = primary_n − replica_n (RIGHT axis), the gap auto-scaled so the lag is visible: the replica can't replay in real time and trails by some versions. Pure latency cost, no partition — PACELC's Else-Latency corner.",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": { "unit": "short", "min": 0, "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 0 } },
@@ -37,7 +37,7 @@
       "title": "Experiment 2 (AP): replica diverges, both stay up",
       "description": "Async + partition. The replication link is cut: the primary keeps committing (its line climbs) while the replica freezes at its last value — stale, but both nodes stay available (AP). On heal the replica snaps back up to the primary (eventual consistency).",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 6 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": { "unit": "short", "custom": { "drawStyle": "line", "lineWidth": 2 } },
@@ -53,7 +53,7 @@
       "title": "Experiment 3 (CP): writes block instead of diverging",
       "description": "Synchronous + partition. Every commit must be acked by the standby, so cutting the link makes a write BLOCK (it does NOT error — it just hangs). 'write blocked' climbs while the commit is stuck, showing a write IS in flight; on heal it completes and 'write p99' records the full stalled duration.",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 12 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": { "defaults": { "unit": "ms", "min": 0 }, "overrides": [] },
       "targets": [
@@ -66,7 +66,7 @@
       "title": "System state",
       "description": "Context for the panels above. standby_connected: 1 while the standby is streaming. partitioned: 1 while the replication link is cut. sync_mode: 1 while synchronous_standby_names is set. Read each experiment against these windows.",
       "type": "timeseries",
-      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 24 },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 18 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
