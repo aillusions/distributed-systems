@@ -6,7 +6,9 @@
 import { metrics } from '@opentelemetry/api';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import {
+  AggregationTemporality,
   AggregationType,
+  InstrumentType,
   MeterProvider,
   PeriodicExportingMetricReader,
 } from '@opentelemetry/sdk-metrics';
@@ -19,8 +21,19 @@ const WRITE_BUCKETS_MS = [
   0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000,
 ];
 
+// Delta temporality for the gauges: once an experiment ends and its label-set
+// is no longer observed, the SDK stops re-sending it (cumulative async gauges
+// otherwise carry every label value forward forever, leaving flat lines after
+// the experiment is over). Keep the histogram CUMULATIVE so the collector's
+// Prometheus exporter still accepts it (it rejects delta histograms).
+const exporter = new OTLPMetricExporter({ url: `${config.otlp.endpoint}/v1/metrics` });
+exporter.selectAggregationTemporality = (instrumentType) =>
+  instrumentType === InstrumentType.HISTOGRAM
+    ? AggregationTemporality.CUMULATIVE
+    : AggregationTemporality.DELTA;
+
 const reader = new PeriodicExportingMetricReader({
-  exporter: new OTLPMetricExporter({ url: `${config.otlp.endpoint}/v1/metrics` }),
+  exporter,
   exportIntervalMillis: config.otlp.exportIntervalMs,
 });
 
@@ -48,6 +61,7 @@ export const state = {
   standbyConnected: 0, // 1 while the standby is streaming
   partitioned: 0, // 1 while the replication link is cut
   syncMode: 0, // 1 while synchronous_standby_names is set
+  blockedSince: null as number | null, // ms-timestamp a write started, while it's still in flight
   experiment: '1-el' as '1-el' | '2-ap' | '3-cp' | 'pause', // current experiment ('pause' = between)
 };
 
@@ -73,6 +87,18 @@ meter
 meter
   .createObservableGauge('pacelc_sync_mode', { description: '1 while synchronous replication is enabled' })
   .addCallback((r) => r.observe(state.syncMode));
+// How long the current write has been in flight (0 when none). Climbs while a
+// synchronous commit is stalled behind a partition, then drops when it returns.
+meter
+  .createObservableGauge('pacelc_write_blocked_ms', {
+    description: 'Age of the in-flight write (0 when none); climbs during a blocked synchronous commit',
+    unit: 'ms',
+  })
+  .addCallback((r) =>
+    r.observe(state.blockedSince == null ? 0 : Date.now() - state.blockedSince, {
+      experiment: state.experiment,
+    }),
+  );
 
 const writeHist = meter.createHistogram('pacelc_write_duration_ms', {
   description: 'Primary write (commit) latency',

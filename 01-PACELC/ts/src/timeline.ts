@@ -30,9 +30,7 @@ async function ensureCounter(): Promise<void> {
   );
 }
 
-const WRITE_MS = 10; // gap between writes (~100/s) — low enough that the replica
-// mostly keeps up, so divergence is small and only flares up now and then. Lower
-// it toward 0 for a bigger, constant gap; raise it for none.
+const WRITE_MS = 10; // default gap between writes (~100/s); raise per-call for less load
 const SAMPLE_MS = 100; // how often to read the replica / poll the standby
 
 // Hammer writes for `secs` as fast as the round-trip allows (no inter-write
@@ -41,7 +39,7 @@ const SAMPLE_MS = 100; // how often to read the replica / poll the standby
 // extra round-trips, so we don't do them on every single write). If async
 // replication can't keep up, replicaN visibly trails primaryN — natural lag,
 // no artificial latency. Logs the phase label; keeps going if a write errors.
-async function drive(label: string, secs: number): Promise<void> {
+async function drive(label: string, secs: number, writeMs: number = WRITE_MS): Promise<void> {
   console.log(`\n[${stamp()}] ${label}  (${secs}s)`);
   const end = Date.now() + secs * 1000;
   let nextSample = 0;
@@ -64,7 +62,7 @@ async function drive(label: string, secs: number): Promise<void> {
         console.error(`write error: ${msg}`);
       }
     }
-    await sleep(WRITE_MS);
+    await sleep(writeMs);
   }
 }
 
@@ -130,7 +128,8 @@ async function main(): Promise<void> {
   {
     state.experiment = '1-el';
     // await setLatency(1000); // artificial link delay — off; rely on write volume
-    await drive('ASYNC writes — replica lag builds under load', 30);
+    // ~50 writes/s (20ms): load high enough that the replica falls behind.
+    await drive('ASYNC writes — does the replica lag under load?', 30, 20);
     // Keep reading (no more writes) until the replica catches up — the phase
     // ends only at total consistency, so the lag line drains to 0 on the graph.
     await converge('ASYNC drain — replica converges to the primary');
@@ -146,11 +145,11 @@ async function main(): Promise<void> {
     state.experiment = '2-ap';
     await setEnabled(false);
     state.partitioned = 1;
-    await drive('ASYNC, CUT — AP: replica stale but both stay up', 30);
+    await drive('ASYNC, CUT — AP: replica stale but both stay up', 30, 20);
 
     await setEnabled(true);
     state.partitioned = 0;
-    await drive('ASYNC, HEAL — eventual consistency: replica converges', 30);
+    await drive('ASYNC, HEAL — eventual consistency: replica converges', 30, 20);
   }
 
   await pause(10);
@@ -173,13 +172,17 @@ async function main(): Promise<void> {
     console.log(`\n[${stamp()}] SYNC, CUT — CP: write BLOCKS (primary unavailable)  (30s)`);
     n += 1;
     const t0 = Date.now();
+    state.blockedSince = t0; // the write is now in flight; the gauge climbs from here
     const blocked = primary
       .query('UPDATE counter SET n = $1, ts = now() WHERE id = 1', [n])
       .then(() => {
         recordWrite(Date.now() - t0);
         state.primaryN = n; // only advances once the ack finally arrives
       })
-      .catch((err) => console.error(`blocked write error: ${err}`));
+      .catch((err) => console.error(`blocked write error: ${err}`))
+      .finally(() => {
+        state.blockedSince = null; // write returned — gauge back to 0
+      });
     await sleep(30_000); // primaryN stays put — the commit hasn't returned
 
     await setEnabled(true);
