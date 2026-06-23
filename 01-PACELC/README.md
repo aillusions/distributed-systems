@@ -51,3 +51,5 @@ block (= CP). The state panel marks each window.
 
 Related: [`TODO/06-pg-replication/`](../TODO/06-pg-replication/) covers the
 replication *mechanics* (lag, WAL, promotion, repair) by hand.
+
+![img.png](img.png)
