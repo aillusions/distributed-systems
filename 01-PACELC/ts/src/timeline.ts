@@ -3,7 +3,7 @@
 // traffic and sets its own link conditions, so the writes you see on the graph
 // are issued right inside that experiment's block — no shared background loop.
 //
-// Phases (~3.5min total): three experiments, 30s each phase, 10s pause between.
+// Phases (~2min total): three experiments, 15s each phase, 10s pause between.
 //   EL (async healthy) → AP (async cut → heal) → CP (sync cut → heal)
 import { primary, readReplica, lagBytes, sleep, closeAll } from './pg.js';
 import { setEnabled, setLatency, clearToxics } from './toxiproxy.js';
@@ -129,7 +129,7 @@ async function main(): Promise<void> {
     state.experiment = '1-el';
     // await setLatency(1000); // artificial link delay — off; rely on write volume
     // ~50 writes/s (20ms): load high enough that the replica falls behind.
-    await drive('ASYNC writes — does the replica lag under load?', 30, 20);
+    await drive('ASYNC writes — does the replica lag under load?', 15, 20);
     // Keep reading (no more writes) until the replica catches up — the phase
     // ends only at total consistency, so the lag line drains to 0 on the graph.
     await converge('ASYNC drain — replica converges to the primary');
@@ -145,11 +145,11 @@ async function main(): Promise<void> {
     state.experiment = '2-ap';
     await setEnabled(false);
     state.partitioned = 1;
-    await drive('ASYNC, CUT — AP: replica stale but both stay up', 30, 20);
+    await drive('ASYNC, CUT — AP: replica stale but both stay up', 15, 20);
 
     await setEnabled(true);
     state.partitioned = 0;
-    await drive('ASYNC, HEAL — eventual consistency: replica converges', 30, 20);
+    await drive('ASYNC, HEAL — eventual consistency: replica converges', 15, 20);
   }
 
   await pause(10);
@@ -161,7 +161,7 @@ async function main(): Promise<void> {
     state.experiment = '3-cp';
     await setSync('replica1');
     state.syncMode = 1;
-    await drive('SYNC enabled — commits now wait for the standby ack', 30);
+    await drive('SYNC enabled — commits now wait for the standby ack', 15);
 
     // Cut: the next commit can't get its ack, so it hangs for the whole
     // partition. Issue it WITHOUT awaiting so we can watch primaryN stay frozen,
@@ -169,7 +169,7 @@ async function main(): Promise<void> {
     await setEnabled(false);
     state.partitioned = 1;
     state.standbyConnected = 0;
-    console.log(`\n[${stamp()}] SYNC, CUT — CP: write BLOCKS (primary unavailable)  (30s)`);
+    console.log(`\n[${stamp()}] SYNC, CUT — CP: write BLOCKS (primary unavailable)  (15s)`);
     n += 1;
     const t0 = Date.now();
     state.blockedSince = t0; // the write is now in flight; the gauge climbs from here
@@ -183,12 +183,12 @@ async function main(): Promise<void> {
       .finally(() => {
         state.blockedSince = null; // write returned — gauge back to 0
       });
-    await sleep(30_000); // primaryN stays put — the commit hasn't returned
+    await sleep(15_000); // primaryN stays put — the commit hasn't returned
 
     await setEnabled(true);
     state.partitioned = 0;
     await blocked; // standby reconnects + acks, the commit returns
-    await drive('SYNC, HEAL — blocked write completed, writes flow again', 30);
+    await drive('SYNC, HEAL — blocked write completed, writes flow again', 15);
   }
 
   // Wind down: restore async, flush metrics.
