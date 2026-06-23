@@ -1,0 +1,159 @@
+name: pacelc
+
+# PACELC lab: Postgres primary + 1 streaming standby, with Toxiproxy on the
+# replication link so we can partition primary<->replica on demand.
+#
+#   ./start.sh         # bring the stack up
+#   cd ../ts && pnpm i && pnpm seed
+#   pnpm lag           # async staleness with NO partition (PACELC "EL")
+#   pnpm partition     # async under partition: replica stays up, serves stale (AP)
+#   pnpm sync          # synchronous repl under partition: writes block (CP)
+#   pnpm timeline      # scripted run of all phases for the Grafana dashboard
+#
+# Apps connect directly:  writes -> primary :5432,  reads -> replica :5433.
+# Only the WAL stream (replica -> toxiproxy -> primary) is partitionable.
+
+services:
+  primary:
+    image: postgres:17.6-alpine
+    container_name: pacelc-primary
+    hostname: primary
+    restart: on-failure
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: dslab
+      POSTGRES_HOST_AUTH_METHOD: trust
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U admin -d dslab']
+      interval: 1s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    tmpfs:
+      - /var/lib/postgresql/data:size=512m
+    volumes:
+      - ./primary/init-replication.sh:/docker-entrypoint-initdb.d/init-replication.sh:ro
+    command: >
+      postgres
+      -c wal_level=replica
+      -c max_wal_senders=10
+      -c max_replication_slots=10
+      -c wal_keep_size=512MB
+      -c hot_standby=on
+      -c synchronous_commit=on
+
+  # Sits on the replication path. Listens on :5432 inside the network and
+  # forwards to primary:5432. Disabling this proxy (via the admin API on :8474)
+  # is our network partition. App read/write traffic never crosses it.
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.11.0
+    container_name: pacelc-toxiproxy
+    hostname: toxiproxy
+    restart: on-failure
+    ports:
+      - '8474:8474'
+    volumes:
+      # The image ships its binary at /toxiproxy (a file), so the config can't
+      # live under that path — mount it at the root instead.
+      - ./toxiproxy/config.json:/config.json:ro
+    command: ['-host=0.0.0.0', '-config=/config.json']
+    depends_on:
+      primary:
+        condition: service_healthy
+
+  replica:
+    image: postgres:17.6-alpine
+    container_name: pacelc-replica
+    hostname: replica
+    restart: on-failure
+    # Run as postgres so the overridden entrypoint can pg_basebackup into a
+    # subdir of the (world-writable) tmpfs mount without root.
+    user: postgres
+    ports:
+      - '5433:5432'
+    environment:
+      PGUSER: admin
+      PGPASSWORD: admin
+      PRIMARY_HOST: toxiproxy
+      PRIMARY_PORT: 5432
+    tmpfs:
+      - /var/lib/postgresql/data:size=512m
+    volumes:
+      - ./replica/entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: ['/bin/sh', '/entrypoint.sh']
+    depends_on:
+      - toxiproxy
+
+  # --- Monitoring (prometheus + otel-collector + grafana) ------------------
+  # The `pnpm timeline` driver exports OTLP metrics to the collector (:4318),
+  # which re-exposes them on :8889 for Prometheus to scrape → Grafana at :3005.
+
+  # http://localhost:9090/targets
+  prometheus:
+    image: prom/prometheus
+    container_name: pacelc-prometheus
+    ports:
+      - '9090:9090'
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    # lookback-delta is how long Prometheus carries a series' last value forward
+    # before treating it as stale (default 5m). Drop it to 5s so a finished
+    # experiment's line ends within seconds instead of hanging on the graph.
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --query.lookback-delta=5s
+
+  # OTLP HTTP on :4318, OTLP gRPC on :4317; Prometheus scrape endpoint on :8889.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.116.1
+    container_name: pacelc-otel-collector
+    ports:
+      - '4317:4317'
+      - '4318:4318'
+      - '8889:8889'
+    volumes:
+      - ./monitoring/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    command: ['--config=/etc/otelcol-contrib/config.yaml']
+
+  # http://localhost:3005  → dashboard "PACELC — C vs A under partition"
+  grafana:
+    image: grafana/grafana:13.0.1
+    container_name: pacelc-grafana
+    ports:
+      - '3005:3000'
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - GF_SERVER_ROOT_URL=http://localhost:3005
+      - GF_PATHS_PERMITTED_PROVISIONING_PATHS=/var/lib/grafana/dashboards
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+
+  # One-shot init: registers the v2 Provisioning Repository so JSON dashboards
+  # in /var/lib/grafana/dashboards/ are picked up automatically. 409 (already
+  # exists) is treated as success — safe to re-run on every up.
+  grafana-bootstrap:
+    image: curlimages/curl:latest
+    container_name: pacelc-grafana-bootstrap
+    depends_on:
+      - grafana
+    restart: 'no'
+    entrypoint:
+      - sh
+      - -c
+      - |
+        until curl -sf http://grafana:3000/api/health > /dev/null; do
+          echo "waiting for grafana..."; sleep 2;
+        done;
+        echo "registering Repository...";
+        code=$$(curl -s -o /tmp/out -w "%{http_code}" -X POST \
+          -H 'Content-Type: application/json' \
+          -d '{"apiVersion":"provisioning.grafana.app/v0alpha1","kind":"Repository","metadata":{"name":"pacelc-monitoring","namespace":"default"},"spec":{"title":"PACELC Monitoring","type":"local","local":{"path":"/var/lib/grafana/dashboards"},"sync":{"enabled":true,"target":"folder","intervalSeconds":10},"workflows":[]}}' \
+          http://grafana:3000/apis/provisioning.grafana.app/v0alpha1/namespaces/default/repositories);
+        cat /tmp/out; echo;
+        case "$$code" in 2*|409) echo "ok ($$code)"; exit 0;; *) echo "FAIL $$code"; exit 1;; esac

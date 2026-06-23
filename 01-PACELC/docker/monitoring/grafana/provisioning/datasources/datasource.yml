@@ -1,0 +1,14 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    # Tell Grafana the scrape interval so it doesn't floor the query step at the
+    # 15s default — otherwise 1s scrapes still render as coarse 15s buckets.
+    jsonData:
+      timeInterval: '1s'

@@ -1,4 +1,4 @@
-# CAP in practice: C vs A on a Postgres primary/standby
+# PACELC in practice: C vs A on a Postgres primary/standby
 
 **Goal:** feel the consistency–availability trade-off on a real replicated
 Postgres, by partitioning the replication link with Toxiproxy and watching how
@@ -25,15 +25,27 @@ without touching client connectivity.
 ## Run
 
 ```bash
-./up.sh                 # primary + standby + toxiproxy; waits for streaming
-cd ts && pnpm install && pnpm setup
+01-PACELC/docker/start.sh    # primary + standby + toxiproxy; waits for streaming
+cd 01-PACELC/ts && pnpm install
 
-pnpm lag                # async staleness, NO partition  (PACELC EL)
-pnpm partition          # async + partition: replica stays up, stale  (AP)
-pnpm sync               # synchronous + partition: writes block       (CP)
+pnpm timeline                # seeds the row, then walks every phase (~3.5 min)
 
-cd .. && ./down.sh
+cd ../.. && 01-PACELC/docker/stop.sh
 ```
+
+`timeline` runs every corner back to back on a clock while exporting metrics —
+async staleness (EL), async + partition (AP), then synchronous + partition (CP).
+
+## Watch it on a dashboard
+
+Open **http://localhost:3005** → dashboard *"PACELC — C vs A under partition"*.
+The "Primary vs replica counter value" panel is the one to watch: under healthy
+async the replica tracks the primary a few ms behind (a small steady gap — the
+EL latency cost, from a 3ms link latency the timeline applies only for that
+first phase), then flatlines the
+instant you partition while the primary keeps climbing (= AP), snaps back on
+heal, and finally *both* freeze under sync+partition as the primary's writes
+block (= CP). The state panel marks each window.
 
 **Status:** 🟡 scaffold; not yet run end-to-end.
 

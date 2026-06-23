@@ -1,17 +1,20 @@
 {
-  "name": "cap-lab-ts",
+  "name": "pacelc-lab-ts",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "description": "Demonstrate consistency-vs-availability on a Postgres primary/standby pair under a Toxiproxy-induced partition.",
   "scripts": {
-    "setup": "tsx src/setup.ts",
-    "lag": "tsx src/lag.ts",
-    "partition": "tsx src/partition.ts",
-    "sync": "tsx src/sync.ts",
+    "seed": "tsx src/setup.ts",
+    "timeline": "tsx src/timeline.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.205.0",
+    "@opentelemetry/resources": "^2.1.0",
+    "@opentelemetry/sdk-metrics": "^2.1.0",
+    "@opentelemetry/semantic-conventions": "^1.37.0",
     "pg": "^8.13.1"
   },
   "devDependencies": {

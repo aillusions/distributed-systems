@@ -19,4 +19,9 @@ export const config = {
     url: process.env.TOXIPROXY_URL ?? 'http://localhost:8474',
     proxy: 'pg-replication',
   },
+  otlp: {
+    endpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? 'http://localhost:4318',
+    exportIntervalMs: Number(process.env.OTEL_EXPORT_INTERVAL_MS ?? 1000),
+    serviceName: process.env.OTEL_SERVICE_NAME ?? 'pacelc-lab-ts',
+  },
 };

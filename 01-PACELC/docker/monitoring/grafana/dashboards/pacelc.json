@@ -1,0 +1,74 @@
+{
+  "uid": "pacelc",
+  "title": "PACELC — C vs A under partition",
+  "tags": ["pacelc", "cap", "lab"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "5s",
+  "time": { "from": "now-5m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Experiment 1 (EL): replica lag — versions behind primary",
+      "description": "primary_n − replica_n on a healthy, async link. The raw counters both climb to ~137k and overlap on a full-scale axis, so we plot their difference: under heavy write load (~4–5k writes/s) the replica can't replay in real time and trails by a few hundred versions. Pure latency cost, no partition — PACELC's Else-Latency corner. The gap auto-scales the axis, so the lag is finally visible.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0, "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 15 } },
+        "overrides": []
+      },
+      "targets": [
+        { "refId": "A", "expr": "pacelc_primary_n{experiment=\"1-el\"} - pacelc_replica_n{experiment=\"1-el\"}", "legendFormat": "versions behind" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Experiment 2 (AP): replica diverges, both stay up",
+      "description": "Async + partition. The replication link is cut: the primary keeps committing (its line climbs) while the replica freezes at its last value — stale, but both nodes stay available (AP). On heal the replica snaps back up to the primary (eventual consistency).",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "lineWidth": 2 } },
+        "overrides": []
+      },
+      "targets": [
+        { "refId": "A", "expr": "pacelc_primary_n{experiment=\"2-ap\"}", "legendFormat": "primary n" },
+        { "refId": "B", "expr": "pacelc_replica_n{experiment=\"2-ap\"}", "legendFormat": "replica n" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Experiment 3 (CP): writes block instead of diverging",
+      "description": "Synchronous + partition. Every commit must be acked by the standby, so cutting the link makes a write BLOCK — its commit latency spikes to the length of the partition and the primary is unavailable for writes (CP). On heal the blocked write completes.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ms", "min": 0 }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.99, sum by (le) (rate(pacelc_write_duration_ms_bucket{experiment=\"3-cp\"}[10s])))", "legendFormat": "write p99" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "System state",
+      "description": "Context for the panels above. standby_connected: 1 while the standby is streaming. partitioned: 1 while the replication link is cut. sync_mode: 1 while synchronous_standby_names is set. Read each experiment against these windows.",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": -0.1,
+          "max": 1.1,
+          "custom": { "drawStyle": "line", "lineInterpolation": "stepAfter", "lineWidth": 2, "fillOpacity": 10 }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "refId": "A", "expr": "pacelc_standby_connected", "legendFormat": "standby connected" }
+      ]
+    }
+  ]
+}

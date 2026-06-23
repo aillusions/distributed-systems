@@ -12,7 +12,7 @@ is the *explanation*.
 
 | Drill | Folder | What it teaches | Status |
 | --- | --- | --- | --- |
-| CAP: C vs A | [`01-CAP/`](01-CAP/) | async=AP vs sync=CP under a partition (Toxiproxy) | 🟡 scaffold |
+| PACELC: C vs A | [`01-PACELC/`](01-PACELC/) | async=AP vs sync=CP under a partition (Toxiproxy), plus the EL latency corner | 🟡 scaffold |
 
 Queued in [`TODO/`](TODO/):
 
