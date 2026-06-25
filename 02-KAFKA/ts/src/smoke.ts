@@ -16,6 +16,9 @@ const RETRY_TOPIC = 'smoke.retry';
 const DLQ_TOPIC = 'smoke.dlq';
 const COUNT = 10;
 const MAX_RETRIES = 3;
+// KafkaJS types `acks` as a number; -1 is the wire value for "all in-sync
+// replicas must ack". Named so the call sites read as acks=all.
+const ACKS_ALL = -1;
 
 // Stand-in for real processing. Two records misbehave so we exercise both
 // paths: 'msg-3' is poison (never succeeds → ends in the DLQ); 'msg-7' is
@@ -43,7 +46,11 @@ async function main(): Promise<void> {
   // can briefly return UNKNOWN_TOPIC_OR_PARTITION before metadata propagates —
   // and poll metadata ourselves until every partition has a leader.
   await admin.createTopics({
-    topics: topics.map((topic) => ({ topic, numPartitions: 3, replicationFactor: 3 })),
+    topics: topics.map((topic) => ({
+      topic,
+      numPartitions: 3,
+      replicationFactor: 3,
+    })),
   });
   for (let tries = 0; ; tries++) {
     const md = (await admin.fetchTopicMetadata({ topics })).topics;
@@ -68,7 +75,7 @@ async function main(): Promise<void> {
   for (let i = 0; i < COUNT; i++) {
     await producer.send({
       topic: TOPIC,
-      acks: -1, // -1 = all in-sync replicas must ack
+      acks: ACKS_ALL,
       messages: [{ key: `k${i % 3}`, value: `msg-${i}` }],
     });
   }
@@ -78,10 +85,15 @@ async function main(): Promise<void> {
   let deadLettered = 0;
 
   // Forward a record onto another topic, carrying the attempt count in a header.
-  const forward = (topic: string, key: Buffer | null, value: Buffer | null, attempt: number) =>
+  const forward = (
+    topic: string,
+    key: Buffer | null,
+    value: Buffer | null,
+    attempt: number,
+  ) =>
     producer.send({
       topic,
-      acks: -1,
+      acks: ACKS_ALL,
       messages: [{ key, value, headers: { attempts: String(attempt) } }],
     });
 
@@ -90,6 +102,10 @@ async function main(): Promise<void> {
   await mainConsumer.connect();
   await mainConsumer.subscribe({ topic: TOPIC, fromBeginning: true });
   await mainConsumer.run({
+    // KafkaJS default, made explicit: commit the offset once eachMessage
+    // resolves. We catch failures and forward them, so the handler always
+    // resolves and a poison record never blocks the partition.
+    autoCommit: true,
     eachMessage: async ({ message }) => {
       const value = message.value!.toString();
       try {
@@ -107,6 +123,7 @@ async function main(): Promise<void> {
   await retryConsumer.connect();
   await retryConsumer.subscribe({ topic: RETRY_TOPIC, fromBeginning: true });
   await retryConsumer.run({
+    autoCommit: true,
     eachMessage: async ({ message }) => {
       const value = message.value!.toString();
       const attempt = Number(message.headers?.attempts?.toString() ?? '1');
@@ -131,6 +148,7 @@ async function main(): Promise<void> {
   await dlqConsumer.connect();
   await dlqConsumer.subscribe({ topic: DLQ_TOPIC, fromBeginning: true });
   await dlqConsumer.run({
+    autoCommit: true,
     eachMessage: async ({ message }) => {
       console.log(`  DLQ: "${message.value!.toString()}" parked for investigation`);
       deadLettered++;
@@ -150,7 +168,10 @@ async function main(): Promise<void> {
   ]);
 
   const accounted = succeeded + deadLettered;
-  console.log(`processed ${succeeded}, dead-lettered ${deadLettered} (${accounted}/${COUNT} accounted)`);
+  console.log(
+    `processed ${succeeded}, dead-lettered ${deadLettered} ` +
+      `(${accounted}/${COUNT} accounted)`,
+  );
   console.log(accounted === COUNT ? 'smoke: OK' : 'smoke: RECORDS UNACCOUNTED');
   process.exitCode = accounted === COUNT ? 0 : 1;
 }

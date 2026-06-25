@@ -1,6 +1,6 @@
-# Kafka: durability, queues, and streaming on a 3-broker cluster
+# Kafka: durability, queues, and streaming on a 5-broker cluster
 
-**Goal:** build fluency in Kafka's guarantees by driving a real 3-broker
+**Goal:** build fluency in Kafka's guarantees by driving a real 6-broker
 cluster from a client and watching it on a dashboard — then breaking it.
 
 **Teaches:** how `acks` + `min.insync.replicas` + the ISR decide whether an
@@ -13,16 +13,17 @@ it lands.
 ## Topology
 
 ```
- producer / consumer ─► broker1 :19092   broker2 :29092   broker3 :39092  (host)
+ producer / consumer ─► broker1..broker5  :19092 .. :19096  (host)
                           └── KRaft controller quorum + ISR replication ──┘
                                           ▲
                                     toxiproxy :8475 (idle; drills cut a broker here)
 ```
 
-Three combined broker+controller nodes in KRaft mode (no ZooKeeper). Clients
-reach them via the per-broker EXTERNAL listeners on the host. Toxiproxy is up
-but idle — later drills route a broker through it to model a partition, the
-same chaos lever the [`01-PACELC/`](../01-PACELC/) stack uses.
+Five combined broker+controller nodes in KRaft mode (no ZooKeeper). Clients
+reach them via the per-broker EXTERNAL listeners on the host (broker N →
+`:1909(1+N)`). Toxiproxy is up but idle — later drills route a broker through
+it to model a partition, the same chaos lever the
+[`01-PACELC/`](../01-PACELC/) stack uses.
 
 ## Run
 
