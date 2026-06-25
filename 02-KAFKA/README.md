@@ -30,10 +30,36 @@ same chaos lever the [`01-PACELC/`](../01-PACELC/) stack uses.
 02-KAFKA/docker/start.sh     # 3 brokers + monitoring; waits for the cluster
 cd 02-KAFKA/ts && pnpm install
 
-pnpm smoke                   # create a RF=3 topic, produce 10 / consume 10
+pnpm smoke                   # produce 10, then exercise the retry + DLQ flow
 
 cd ../.. && 02-KAFKA/docker/stop.sh
 ```
+
+## Consumer retries & DLQ
+
+Kafka has no built-in consumer retry. `pnpm smoke` rolls the standard pattern:
+the main consumer forwards a failed record to a separate **retry topic** (the
+attempt count rides in a header), a retry consumer reprocesses it with backoff,
+and after `MAX_RETRIES` it's parked in a **dead-letter queue** for later
+inspection. Retries live on their own topics, so a poison record never
+head-of-line-blocks the main consumer.
+
+```mermaid
+flowchart LR
+    P[producer] -->|10 records| T[smoke]
+    T --> M{main consumer}
+    M -->|ok| OK([processed])
+    M -->|fail| R[smoke.retry]
+    R --> RC{retry consumer: backoff}
+    RC -->|ok| OK
+    RC -->|fail, under limit| R
+    RC -->|fail, limit hit| D[smoke.dlq]
+    D --> DC([dead-lettered])
+```
+
+Seeded misbehavers: `msg-7` is flaky (recovers on retry attempt 2) and `msg-3`
+is poison (exhausts 3 attempts → DLQ) — so a run ends 9 processed, 1
+dead-lettered.
 
 ## Watch it
 
