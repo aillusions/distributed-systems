@@ -10,10 +10,11 @@ is the *explanation*.
 
 
 TODO
-- Wafka 
+- Kafka 
   - change topic config after creation
   - kafka streaming
 - Working with Postgres partitions
 - Working with Redis cluster (read replica)
-- Working with API gateway
-- Working with sse and load balancer
+- Working with API gateway (rate limit, auth,)
+- Working with SSE behind a load balancer
+- Working with OTEL metrics and spans (traces)
