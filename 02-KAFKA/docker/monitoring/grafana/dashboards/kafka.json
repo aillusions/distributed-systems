@@ -1,0 +1,67 @@
+{
+  "uid": "kafka",
+  "title": "Kafka — cluster overview",
+  "tags": ["kafka", "lab"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Brokers online",
+      "description": "Broker count reported by kafka-exporter. Drops as brokers are killed in the failover drills.",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "kafka_brokers", "legendFormat": "brokers" }]
+    },
+    {
+      "id": 2,
+      "title": "Under-replicated partitions",
+      "description": "Sum of partitions whose ISR is smaller than the replication factor. Should be 0 in a healthy cluster; spikes when a broker drops out of the ISR.",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "sum(kafka_topic_partition_under_replicated_partition)", "legendFormat": "under-replicated" }]
+    },
+    {
+      "id": 3,
+      "title": "In-sync replicas per partition",
+      "description": "ISR size per topic/partition (internal __ topics excluded). Watch this shrink toward 1 as the ISR loses members under partition or load.",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "custom": { "drawStyle": "line", "lineWidth": 2 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "kafka_topic_partition_in_sync_replica{topic!~\"__.*\"}", "legendFormat": "{{topic}}-{{partition}}" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Partition log-end offset",
+      "description": "Latest offset per topic/partition — the running tip of each log. Climbs as the producer appends.",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "custom": { "drawStyle": "line", "lineWidth": 2 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "kafka_topic_partition_current_offset{topic!~\"__.*\"}", "legendFormat": "{{topic}}-{{partition}}" }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Consumer group lag",
+      "description": "Records each consumer group is behind the log tip, per topic/partition. The message-queue drill watches this drain and spike during rebalances.",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "custom": { "drawStyle": "line", "lineWidth": 2 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "sum by (consumergroup, topic) (kafka_consumergroup_lag{topic!~\"__.*\"})", "legendFormat": "{{consumergroup}} / {{topic}}" }
+      ]
+    }
+  ]
+}

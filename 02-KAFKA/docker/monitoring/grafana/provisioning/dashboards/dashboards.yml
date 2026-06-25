@@ -1,0 +1,6 @@
+apiVersion: 1
+
+# Dashboards are loaded via the Provisioning API (Repository resource
+# registered by grafana-bootstrap, pointed at /var/lib/grafana/dashboards).
+# Drop dashboard JSONs into monitoring/grafana/dashboards/ and they sync.
+providers: []

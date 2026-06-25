@@ -1,0 +1,210 @@
+# Kafka lab: 3-broker Kafka cluster in KRaft mode (no ZooKeeper), each node a
+# combined broker+controller. Enough replicas to play with acks,
+# min.insync.replicas, ISR shrink, and broker failover in later drills.
+#
+#   ./start.sh         # bring the cluster up, wait for all 3 brokers
+#   cd ../ts && pnpm i && pnpm smoke   # produce/consume round-trip
+#
+# Clients connect from the host via the EXTERNAL listeners:
+#   broker1 :19092   broker2 :29092   broker3 :39092
+# Inside the compose network brokers talk on PLAINTEXT :9092 and the KRaft
+# controller quorum on :9093.
+#
+# Ports are offset from the 01-PACELC stack so both can run side by side.
+
+x-broker-common: &broker-common
+  image: apache/kafka:4.3.1
+  restart: on-failure
+  environment: &broker-env
+    KAFKA_PROCESS_ROLES: broker,controller
+    KAFKA_CONTROLLER_QUORUM_VOTERS: 1@broker1:9093,2@broker2:9093,3@broker3:9093
+    KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+    KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+    KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+    # 3-broker defaults so internal topics survive a single broker loss.
+    KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+    KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+    KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+    KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    # Same id on every node so the three format into one cluster.
+    CLUSTER_ID: kafka-lab-0000000000001
+
+services:
+  broker1:
+    <<: *broker-common
+    container_name: kafka-broker1
+    hostname: broker1
+    ports:
+      - '19092:19092'
+    environment:
+      <<: *broker-env
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,EXTERNAL://:19092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://broker1:9092,EXTERNAL://localhost:19092
+
+  broker2:
+    <<: *broker-common
+    container_name: kafka-broker2
+    hostname: broker2
+    ports:
+      - '29092:29092'
+    environment:
+      <<: *broker-env
+      KAFKA_NODE_ID: 2
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,EXTERNAL://:29092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://broker2:9092,EXTERNAL://localhost:29092
+
+  broker3:
+    <<: *broker-common
+    container_name: kafka-broker3
+    hostname: broker3
+    ports:
+      - '39092:39092'
+    environment:
+      <<: *broker-env
+      KAFKA_NODE_ID: 3
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,EXTERNAL://:39092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://broker3:9092,EXTERNAL://localhost:39092
+
+  # Idle for now. Later drills register proxies here (admin API on :8475) to
+  # partition a broker from the rest of the cluster, the same chaos lever the
+  # 01-PACELC stack uses on the replication link.
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.11.0
+    container_name: kafka-toxiproxy
+    hostname: toxiproxy
+    restart: on-failure
+    ports:
+      - '8475:8474'
+    volumes:
+      - ./toxiproxy/config.json:/config.json:ro
+    command: ['-host=0.0.0.0', '-config=/config.json']
+
+  # Browse topics/partitions/offsets/consumer groups while developing.
+  # Two UIs side by side — pick whichever you prefer:
+  #   kafka-ui (the default/standard Kafka UI) → :8089
+  #   redpanda console                         → :8088
+  kafka-ui:
+    image: ghcr.io/kafbat/kafka-ui:v1.0.0
+    container_name: kafka-ui
+    restart: on-failure
+    ports:
+      - '8089:8080'
+    environment:
+      KAFKA_CLUSTERS_0_NAME: kafka-lab
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: broker1:9092,broker2:9092,broker3:9092
+      DYNAMIC_CONFIG_ENABLED: 'true'
+    depends_on:
+      - broker1
+      - broker2
+      - broker3
+
+  console:
+    image: docker.redpanda.com/redpandadata/console:v3.7.4
+    container_name: kafka-console
+    restart: on-failure
+    ports:
+      - '8088:8080'
+    environment:
+      KAFKA_BROKERS: broker1:9092,broker2:9092,broker3:9092
+    depends_on:
+      - broker1
+      - broker2
+      - broker3
+
+  # --- Monitoring (kafka-exporter + prometheus + otel-collector + grafana) ---
+  # kafka-exporter scrapes broker/topic/partition/consumer-lag metrics straight
+  # off the cluster; the TS driver exports app-level metrics (produce latency,
+  # acked vs lost) via OTLP. Both land in Prometheus → Grafana :3006.
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.9.0
+    container_name: kafka-exporter
+    restart: on-failure
+    ports:
+      - '9308:9308'
+    command:
+      - --kafka.server=broker1:9092
+      - --kafka.server=broker2:9092
+      - --kafka.server=broker3:9092
+    depends_on:
+      - broker1
+      - broker2
+      - broker3
+
+  # http://localhost:9091/targets
+  prometheus:
+    image: prom/prometheus
+    container_name: kafka-prometheus
+    ports:
+      - '9091:9090'
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --query.lookback-delta=5s
+
+  # OTLP HTTP on :4320, OTLP gRPC on :4319; Prometheus scrape endpoint on :8890.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.155.0
+    container_name: kafka-otel-collector
+    ports:
+      - '4319:4317'
+      - '4320:4318'
+      - '8890:8889'
+    volumes:
+      - ./monitoring/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    command: ['--config=/etc/otelcol-contrib/config.yaml']
+
+  # http://localhost:3006
+  grafana:
+    image: grafana/grafana:13.1.0
+    container_name: kafka-grafana
+    ports:
+      - '3006:3000'
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - GF_SERVER_ROOT_URL=http://localhost:3006
+      - GF_PATHS_PERMITTED_PROVISIONING_PATHS=/var/lib/grafana/dashboards
+      - GF_RENDERING_SERVER_URL=http://renderer:8081/render
+      - GF_RENDERING_CALLBACK_URL=http://grafana:3000/
+      - GF_RENDERING_RENDERER_TOKEN=kafka-local-renderer-token
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - renderer
+
+  # Headless Chromium that renders panels/dashboards to PNG (Share → Export image).
+  renderer:
+    image: grafana/grafana-image-renderer:latest
+    container_name: kafka-grafana-renderer
+    environment:
+      - ENABLE_METRICS=true
+      - AUTH_TOKEN=kafka-local-renderer-token
+
+  # One-shot init: registers the v2 Provisioning Repository so JSON dashboards
+  # in /var/lib/grafana/dashboards/ are picked up automatically. 409 (already
+  # exists) is treated as success — safe to re-run on every up.
+  grafana-bootstrap:
+    image: curlimages/curl:latest
+    container_name: kafka-grafana-bootstrap
+    depends_on:
+      - grafana
+    restart: 'no'
+    entrypoint:
+      - sh
+      - -c
+      - |
+        until curl -sf http://grafana:3000/api/health > /dev/null; do
+          echo "waiting for grafana..."; sleep 2;
+        done;
+        echo "registering Repository...";
+        code=$$(curl -s -o /tmp/out -w "%{http_code}" -X POST \
+          -H 'Content-Type: application/json' \
+          -d '{"apiVersion":"provisioning.grafana.app/v0alpha1","kind":"Repository","metadata":{"name":"kafka-monitoring","namespace":"default"},"spec":{"title":"Kafka Monitoring","type":"local","local":{"path":"/var/lib/grafana/dashboards"},"sync":{"enabled":true,"target":"folder","intervalSeconds":10},"workflows":[]}}' \
+          http://grafana:3000/apis/provisioning.grafana.app/v0alpha1/namespaces/default/repositories);
+        cat /tmp/out; echo;
+        case "$$code" in 2*|409) echo "ok ($$code)"; exit 0;; *) echo "FAIL $$code"; exit 1;; esac
