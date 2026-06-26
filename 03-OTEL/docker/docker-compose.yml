@@ -1,0 +1,122 @@
+name: distributed-systems-otel
+
+# All three OTEL signals end to end, correlated in one Grafana:
+#   app (client → gateway → backend) --OTLP--> otel-collector ┐
+#     traces  → Tempo                                         │
+#     logs    → Loki                                          │
+#     metrics → Prometheus (scrapes the collector)            ┘
+#   + spanmetrics connector: RED metrics derived from spans, with exemplars.
+#
+#   ./start.sh   # brings the stack up; run the TS services on the host
+
+services:
+  postgres:
+    image: postgres:17.10-alpine
+    container_name: otellab-postgres
+    hostname: postgres
+    restart: on-failure
+    ports:
+      - '5432:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U admin']
+      interval: 1s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: dslab
+    # RAM-backed: all DB state wiped on restart. Fine for a lab.
+    tmpfs:
+      - /var/lib/postgresql/data:rw,size=512m
+
+  redis:
+    image: redis:8.2.7-alpine
+    container_name: otellab-redis
+    hostname: redis
+    restart: on-failure
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 1s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  # --- OTEL pipeline -------------------------------------------------------
+  # OTLP in on :4317/:4318. Fans the three signals out to Tempo/Loki/Prometheus
+  # and re-exposes metrics (app + spanmetrics) on :8889 for Prometheus to scrape.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.155.0
+    container_name: otellab-otel-collector
+    restart: on-failure
+    ports:
+      - '4317:4317'
+      - '4318:4318'
+      - '8889:8889'
+    volumes:
+      - ./monitoring/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    command: ['--config=/etc/otelcol-contrib/config.yaml']
+    depends_on:
+      - tempo
+      - loki
+
+  # Traces store. Receives OTLP from the collector on :4317 (internal only);
+  # query API on :3200 for Grafana.
+  tempo:
+    image: grafana/tempo:2.10.7
+    container_name: otellab-tempo
+    restart: on-failure
+    ports:
+      - '3200:3200'
+    volumes:
+      - ./monitoring/tempo/tempo.yaml:/etc/tempo.yaml:ro
+    command: ['-config.file=/etc/tempo.yaml']
+
+  # Logs store. OTLP ingest at /otlp; query API on :3100 for Grafana.
+  loki:
+    image: grafana/loki:3.7.3
+    container_name: otellab-loki
+    restart: on-failure
+    ports:
+      - '3100:3100'
+    volumes:
+      - ./monitoring/loki/loki.yaml:/etc/loki/loki.yaml:ro
+    command: ['-config.file=/etc/loki/loki.yaml']
+
+  # Metrics store. exemplar-storage lets a metric sample carry a trace_id so
+  # Grafana can jump from a latency spike to the trace that caused it.
+  prometheus:
+    image: prom/prometheus:v3.12.0
+    container_name: otellab-prometheus
+    restart: on-failure
+    ports:
+      - '9090:9090'
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--enable-feature=exemplar-storage'
+
+  # http://localhost:3005 (anonymous admin). Datasources + correlation wired
+  # via provisioning; one demo dashboard auto-loaded.
+  grafana:
+    image: grafana/grafana:13.0.3
+    container_name: otellab-grafana
+    restart: on-failure
+    ports:
+      - '3005:3000'
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - GF_SERVER_ROOT_URL=http://localhost:3005
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+      - tempo
+      - loki

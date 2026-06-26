@@ -1,0 +1,36 @@
+{
+  "name": "otel-lab-ts",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Two-service demo (client → gateway → backend) emitting all three OTEL signals: distributed traces, metrics (+exemplars), and trace-correlated logs.",
+  "scripts": {
+    "start:backend": "OTEL_SERVICE_NAME=backend OTEL_METRICS_EXEMPLAR_FILTER=trace_based tsx src/backend.ts",
+    "start:gateway": "OTEL_SERVICE_NAME=gateway OTEL_METRICS_EXEMPLAR_FILTER=trace_based tsx src/gateway.ts",
+    "load": "OTEL_SERVICE_NAME=client OTEL_METRICS_EXEMPLAR_FILTER=trace_based tsx src/client.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/api-logs": "^0.219.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.77.0",
+    "@opentelemetry/exporter-logs-otlp-http": "^0.219.0",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.219.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.219.0",
+    "@opentelemetry/resources": "^2.8.0",
+    "@opentelemetry/sdk-logs": "^0.219.0",
+    "@opentelemetry/sdk-metrics": "^2.8.0",
+    "@opentelemetry/sdk-node": "^0.219.0",
+    "@opentelemetry/semantic-conventions": "^1.41.1",
+    "express": "^4.21.2",
+    "ioredis": "^5.4.2",
+    "pg": "^8.13.1",
+    "pino": "^10.3.1"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.10.5",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

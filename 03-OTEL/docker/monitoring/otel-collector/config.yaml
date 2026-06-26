@@ -1,0 +1,62 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+connectors:
+  # Derives RED metrics (calls + duration histogram) from every span, so you
+  # get rate/error/latency for free without instrumenting metrics by hand.
+  # exemplars.enabled stamps each generated sample with a trace_id → click a
+  # point on the RED graph, jump to an example trace.
+  spanmetrics:
+    histogram:
+      explicit:
+        buckets: [1ms, 2ms, 5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2s, 5s]
+    dimensions:
+      - name: http.route
+      - name: http.request.method
+    exemplars:
+      enabled: true
+    metrics_flush_interval: 5s
+
+processors:
+  batch:
+    timeout: 5s
+
+exporters:
+  # Traces → Tempo (OTLP gRPC, in-network, no TLS).
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+
+  # Logs → Loki's native OTLP ingest endpoint.
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+
+  # Metrics (app + spanmetrics) → scraped by Prometheus on :8889.
+  # open_metrics is required for exemplars to survive the scrape.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    enable_open_metrics: true
+    add_metric_suffixes: false
+    resource_to_telemetry_conversion:
+      enabled: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/tempo, spanmetrics]
+    metrics:
+      receivers: [otlp, spanmetrics]
+      processors: [batch]
+      exporters: [prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/loki]

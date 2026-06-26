@@ -1,0 +1,61 @@
+apiVersion: 1
+
+# Three datasources wired for cross-signal correlation:
+#   metric exemplar → trace   (Prometheus → Tempo)
+#   trace span      → logs     (Tempo → Loki)
+#   trace span      → metrics  (Tempo → Prometheus, + service map)
+#   log line        → trace    (Loki derived field → Tempo)
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      # A trace_id exemplar on any metric becomes a button linking to Tempo.
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo
+
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    editable: false
+    jsonData:
+      # From a span, pivot to the logs emitted during it...
+      tracesToLogsV2:
+        datasourceUid: loki
+        filterByTraceID: true
+        spanStartTimeShift: '-5m'
+        spanEndTimeShift: '5m'
+      # ...or to the RED metrics for the same service/route.
+      tracesToMetrics:
+        datasourceUid: prometheus
+        queries:
+          - name: 'Request rate'
+            query: 'sum(rate(calls{$$__tags}[1m]))'
+      # Service map is built from spanmetrics living in Prometheus.
+      serviceMap:
+        datasourceUid: prometheus
+      nodeGraph:
+        enabled: true
+
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
+    jsonData:
+      # trace_id arrives as structured metadata; turn it into a link to Tempo.
+      derivedFields:
+        - name: trace_id
+          matcherType: label
+          matcherRegex: trace_id
+          datasourceUid: tempo
+          url: '$${__value.raw}'
+          urlDisplayLabel: 'View trace'
