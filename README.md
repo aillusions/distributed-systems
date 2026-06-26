@@ -17,4 +17,4 @@ TODO
 - Working with Redis cluster (read replica)
 - Working with API gateway (rate limit, auth,)
 - Working with SSE behind a load balancer
-- Working with OTEL metrics and spans (traces)
+- Working with OTEL metrics, spans (traces) and logs
